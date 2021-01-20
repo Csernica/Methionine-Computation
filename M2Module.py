@@ -222,7 +222,7 @@ def calcStochasticIsotopologues(molecularDf, M2Dict):
         if -1 in isotopologue:
             subIndex = isotopologue.index(-1)
             conc = clump.singleM2Sub(cVector, subIndex)
-            types.append("O")
+            types.append("Single")
 
         stochastic.append(conc)
 
@@ -549,25 +549,25 @@ def solveByGaussianElimination(M2Output, debug = False):
     
     return dfOutput, solve
 
-def findM2Gamma(M2Solution, inputFile, key):
+def findUM2(M2Solution, inputFile, key):
     '''
-    Calculates the M2 gamma for a given key, i.e. 18O or 13C/13C, a certain M+2/unsub measurement. The key should
+    Calculates the U^M+2 for a given key, i.e. 18O or 13C/13C, a certain M+2/unsub measurement. The key should
     appear in the "Composition" column of M2Solution, and be the same as the key used in the input csv file. 
     '''
     combinedAbundance = M2Solution[M2Solution['Composition'] == key]['M2 Percent Abundance'].values.sum()
-    gamma = inputFile['bulkOrbiM2Plus']['Sample'][key]['Measurement'] / combinedAbundance
-    M2Solution['M2 gamma'] = gamma
+    UM2 = inputFile['bulkOrbiM2Plus']['Sample'][key]['Measurement'] / combinedAbundance
+    M2Solution['U^M+2'] = UM2
     
     return M2Solution
 
-def computeM2ORValues(M2Solution):
+def computeM2UValues(M2Solution):
     '''
     Given an M2 gamma, update the M2 output dataframe to include clumped and site-specific delta values
     '''
-    M2Solution['OR Values'] = M2Solution['M2 Percent Abundance'] * M2Solution['M2 gamma']
+    M2Solution['U Values'] = M2Solution['M2 Percent Abundance'] * M2Solution['U^M+2']
     
     #calculate clumped deltas
-    clumpedDeltas = [1000*(x/y-1) for x, y in zip(M2Solution['OR Values'].values, M2Solution['Stochastic'].values)]
+    clumpedDeltas = [1000*(x/y-1) for x, y in zip(M2Solution['U Values'].values, M2Solution['Stochastic'].values)]
     clumpedCulled = []
     for i in range(len(clumpedDeltas)):
         if M2Solution['Types'].values[i] == 'Clumped':
@@ -578,9 +578,9 @@ def computeM2ORValues(M2Solution):
     #calculate site specific deltas
     deltas = []
     for i, v in M2Solution.iterrows():
-        if v['Types'] == 'O':
+        if v['Types'] == 'Single':
             if "18O" in i:
-                delta = op.ratioToDelta('18O',v['OR Values'])
+                delta = op.ratioToDelta('18O',v['U Values'])
                 deltas.append(delta)
 
         else:
@@ -676,8 +676,8 @@ def M1M2Iterator(inputFile, threshold = 5):
     M2Output = dataFrameToM2Matrix(M1dataFrame, inputFile, measurement = True)
     sol = solveByGaussianElimination(M2Output)
     M2Solution = sol[0]
-    findM2Gamma(M2Solution,inputFile, '18O')
-    computeM2ORValues(M2Solution)
+    findUM2(M2Solution,inputFile, '18O')
+    computeM2UValues(M2Solution)
     
     oldClumpDict = {}
     newClumpDict = {'no':False}
@@ -697,7 +697,7 @@ def M1M2Iterator(inputFile, threshold = 5):
         M2Output = dataFrameToM2Matrix(M1dataFrame, inputFile, measurement = True)
         sol = solveByGaussianElimination(M2Output)
         M2Solution = sol[0]
-        findM2Gamma(M2Solution,inputFile, '18O')
-        computeM2ORValues(M2Solution)
+        findUM2(M2Solution,inputFile, '18O')
+        computeM2UValues(M2Solution)
     
     return M1dataFrame, M2Solution

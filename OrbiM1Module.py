@@ -261,7 +261,7 @@ def defineAnamolyDict(clumpIndices, clumpAnamolies):
         distribution and the anamoly at 0,2 is -0.000005 below the stochastic distribution
     
     Outputs:
-        A dictionary tying the clumpIndices to the clumpAnamolies. Ex: {'0':0.000005,'1':0.00001,'2':-0.000005}
+        A dictionary tying the clumpIndices to the net clumpAnamolies. Ex: {'0':0.000005,'1':0.00001,'2':-0.000005}
     '''
     anamolyDict = {}
     for i, anamoly in enumerate(clumpIndices):
@@ -304,7 +304,7 @@ def OValuesToRValues(dataFrame, targetArray, clumpDict):
     clumpedIndices = []
     for key, value in clumpDict.items():
         clumpGuess.append(value['amount'])
-        clumpedIndices.append(value['indices'])
+        clumpedIndices += value['indices']
 
     #Starting array
     startingGuess = concGuess + clumpGuess

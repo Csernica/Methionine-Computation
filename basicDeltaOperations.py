@@ -24,7 +24,7 @@ def deltaToConcentration(atomIdentity,delta):
         
         return (1-concentrationSub,concentrationSub,0,0)
     
-    elif atomIdentity == '17O':
+    elif atomIdentity == '17O' or atomIdentity == 'O':
         r17 = (delta/1000+1)*STD_Rs['17O']
         delta18 = 1/0.52 * delta
         r18 = (delta18/1000+1)*STD_Rs['18O']
@@ -35,7 +35,7 @@ def deltaToConcentration(atomIdentity,delta):
         
         return (o16,o17,o18,0)
     
-    elif atomIdentity == '33S':
+    elif atomIdentity == '33S' or atomIdentity == 'S':
         r33 = (delta/1000+1)*STD_Rs['33S']
         delta34 = delta/0.515
         r34 = (delta34/1000+1)*STD_Rs['34S']
@@ -51,8 +51,7 @@ def deltaToConcentration(atomIdentity,delta):
         return (s32,s33,s34,s36)
                 
     else:
-        print('Sorry, I do not know how to deal with ' + atomIdentity)
-        return (0,0,0,0)
+        raise Exception('Sorry, I do not know how to deal with ' + atomIdentity)
     
 def hFunction(atomIdentity, M1Value):
     '''

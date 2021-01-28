@@ -1,177 +1,35 @@
 import itertools
-import numpy as np
-import basicDeltaOperations as op
-import pandas as pd
 import copy
 import math
 
-subDict = {'C':{'0':'','1':'13C'},
-           'N':{'0':'','1':'15N'},
-           'H':{'0':'','1':'D'},
-           'O':{'0':'','1':'17O','2':'18O'},
-           'S':{'0':'','1':'33S','2':'34S','4':'36S'}}
+import numpy as np
+import pandas as pd
 
-massDict = {'C':{'0':12,'1':13.00335484},
-            'N':{'0':14.003074,'1':15.00010889},
-            'H':{'0':1.007825032,'1':2.014101778},
-            'O':{'0':15.99491462,'1':16.99913175,'2':17.9991596},
-            'S':{'0':31.97207117,'1':32.9714589,'2':33.96786701,'4':35.9670807}}
+import basicDeltaOperations as op
 
+##############################################################################################################################
+###                                                                                                                        ###
+###   This code calculates a dictionary giving all possible isotopologues of a molecule and their concentrations, based    ###
+###   on input information about the sites and their isotopic composition.                                                 ###
+###                                                                                                                        ###
+###   The theory for this section is developed in the working M+N paper. Contact Tim for details                           ###
+###                                                                                                                        ###
+###   It assumes one has access to a dataframe specifying details about a molecule. See the demos.                         ###
+###                                                                                                                        ###
+##############################################################################################################################
+
+#The possible substitutions, by cardinal mass, for each element. 
 setsOfElementIsotopes = {'H':(0,1),'N':(0,1),'C':(0,1),'O':(0,1,2),'S':(0,1,2,4)}
-
-def nCr(n,r):
-    '''
-    n Choose r
-    '''
-    f = math.factorial
-    return f(n) / f(r) / f(n-r)
-
-def condenseStr(text):
-    '''
-    Condense the string depiction for easier calculation. When there are condensed depictions of isotopologues,
-    they include something like "(0,0)" for multiatomic sites. This function strips those extra characters. 
-    '''
-    text = text.replace('(', '')
-    text = text.replace(')', '')
-    text = text.replace(',', '')
-    text = text.replace(' ', '')
-    
-    return text
-    
-def fragMult(z, y):
-    '''
-    Fragments an individual site of an isotopologue
-    '''
-    if z == 'x' or y == 'x':
-        return 'x'
-    else:
-        return z*y
-    
-def intX(n):
-    '''
-    Interprets 'x' as 'x' and '1' as an integer; used to apply a fragmentation vector. 
-    '''
-    if n == 'x':
-        return 'x'
-    else:
-        return int(n)
-    
-def expandFrag(frag, number):
-    '''
-    Creates an expanded description of a frament. For example, if I fragment [0,(0,1)] with fragmentation vector
-    [0,1], I do so by applying the fragmentation vector [011] to the isotopologue [001], expanding the tuple. This
-    expands the fragmentation vector to match the expanded tuple. 
-    '''
-    intermediate = []
-    for i, v in enumerate(frag):
-        intermediate += [v] * number[i]
-    final = [intX(x) for x in intermediate]
-    
-    return final
-
-def uEl(el, n):
-    '''
-    Returns the type of substitution, given a chemical element and shorthand notation. 
-    '''
-    if n == 0:
-        return ''
-    if n == 'x':
-        return ''
-    if el == 'C':
-        if n == 1:
-            return '13C'
-    if el == 'H':
-        if n == 1:
-            return 'D'
-    if el == 'O':
-        if n == 1:
-            return '17O'
-        if n == 2:
-            return '18O'
-    if el == 'N':
-        if n == 1:
-            return '15N'
-    if el == 'S':
-        if n == 1:
-            return '33S'
-        if n == 2:
-            return '34S'
-        if n == 4:
-            return '36S'
-
-def computeMass(isotopologue, IDs):
-    mass = 0
-    for i in range(len(isotopologue)):
-        if isotopologue[i] != 'x':
-            element = IDs[i]
-            mass += massDict[element][str(isotopologue[i])]
-        
-    return mass
-
-def computeSubs(isotopologue, IDs):
-    subs = []
-    for i in range(len(isotopologue)):
-        if isotopologue[i] != 'x':
-            element = IDs[i]
-            if subDict[element][str(isotopologue[i])] != '':
-                subs.append(subDict[element][str(isotopologue[i])])
-        
-    return '/'.join(subs)
-
-def UValueBySubFromSub(dictionary, sub):
-    '''
-    Takes the "By Sub" dictionary type.    
-    '''
-    den = dictionary['']['Conc']
-    num = dictionary[sub]['Conc']
-    
-    return num/den
-    
-    
-def UValueBySubFromCondensed(dictionary, sub):
-    '''
-    inefficient but user-friendly. Takes the "By Condensed" dictionary type. 
-    '''
-    den = dictionary['000000000000000000000']['Conc']
-    
-    num = 0
-    
-    for i, v in dictionary.items():
-        if v['Subs'] == sub:
-            num += v['Conc']
-            
-    return num / den
-
-def rpos(dictionary, pos):
-    #pos is "position", a string corresponding to the integer position in the shorthand version of the molecule
-    r = 0
-    num = 0
-    den = 0
-    for i, value in dictionary.items():
-        if i[pos] == '1':
-            num += value
-            
-        #Key point here: ratio is 17O/16O, not 17O/Other O. Easy to get tripped up here. 
-        if i[pos] == '0':
-            den += value
-    rN1 = num/den
-    
-    return rN1
-
-def Usite(dictionary, pos):
-    zeros = '00000000000000000000'
-    num = list(['0']*20)
-    num[pos] = '1'
-    numerator = ''.join(num)
-    
-    U = dictionary[numerator]/dictionary[zeros]
-
-    return U
 
 def strSiteElements(df):
     '''
-    Create a string storing the chemical elements in condensed notation. I.e. 'C, (H, H)' becomes 'CHH'.
-    This allows us to easily access the chemical element at a given site. 
+    Our dataframe may include multiatomic sites--for example, we may define site N1/N2 to include two nitrogens and site O3 to have one oxygen. It is useful to have a string where we can index in by position--i.e. "NNO"--to determine the chemical element at a given position. This function defines that string. 
+    
+    Inputs:
+        df: A dataFrame containing information about the molecule.
+        
+    Outputs: 
+        siteElements: A string giving the chemical element by position, expanding multiatomic sites. 
     '''
     elIDs = df['IDS'].values
     numberAtSite = df['Number'].values
@@ -184,8 +42,14 @@ def strSiteElements(df):
 
 def calculateSetsOfSiteIsotopes(df):
     '''
-    Creates a list of tuples, where each tuple gives the shorthand form of a possible isotopologue. The list contains
-    all possible isotopologues. 
+    Every site has some set of possible isotopes. For single-atomic sites, this is equal to the set of element isotopes value for the relevant element. For multiatomic sites, it is given by a multinomial expansion of the set of element isotopes. For example, a nitrogen site with 2 atoms can have (00), (01), or (11) as possible isotopes. The number of ways to make these combinations are 1, 2, and 1 respectively. This function calculates the possible substitutions and multinomial coefficients. 
+    
+    Inputs:
+        df: A dataFrame containing information about the molecule.
+        
+    Outputs: 
+        setsOfSiteIsotopes: A list of tuples, where tuple i gives the possible combinations of substitutions at site i. 
+        multinomialCoefficients: A list of tuples, where tuple i gives the multinomial coefficients of substitutions at site i. 
     '''
     elIDs = df['IDS'].values
     numberAtSite = df['Number'].values
@@ -239,9 +103,15 @@ def calculateSetsOfSiteIsotopes(df):
 
 def calcAllIsotopologues(setsOfSiteIsotopes, multinomialCoefficients):
     '''
-    Compute all isotopologues (big A). For methionine: 663552, correct number based on hand computation. 268 ms to compute.
-
-    If calculating numbers as well, 4.45 seconds. Compare to 1.57 seconds for calculating without multinomial coefficients. We lose here by using multiatomic sites as we need to track more things. However, the major time cost comes later, with the calculation of individual isotopologue concentrations. The extra seconds spent here are worth it. 
+    Compute all isotopologues (big A). For methionine: 995328, correct number based on hand computation. Takes ~8 seconds per loop. For much larger molecules, we will want to avoid this step and instead just calculate the MN populations we are most interested in. 
+    
+    Inputs:
+        setsOfSiteIsotopes: A list of tuples, where tuple i gives the possible combinations of substitutions at site i. 
+        multinomialCoefficients: A list of tuples, where tuple i gives the multinomial coefficients of substitutions at site i. 
+        
+    Outputs: 
+        setOfAllIsotopologues: A list of tuples, where each tuple is an isotopologue of a molecule.
+        symmetryNumbers: A list of ints, where int i gives the number of ways to construct isotopologue i. Follows same indexing as setOfAllIsotopologues. 
     '''
     i = 0
     setOfAllIsotopologues = []
@@ -258,12 +128,18 @@ def calcAllIsotopologues(setsOfSiteIsotopes, multinomialCoefficients):
         symmetryNumbers.append(n)
                              
     return setOfAllIsotopologues, symmetryNumbers
- 
+
 def siteSpecificConcentrations(df):
     '''
-    Calculates site-specific concentrations from input delta values, using the op.deltaToConcentration function. Note that at present, it only works for C,N,O,S,H. If we add new elements, we may need to play with the structure of this function. 
+    Calculates all site-specific concentrations and puts them in an array for easy access. Note that at present, it only works for C,N,O,S,H. If we add new elements, we may need to play with the structure of this function. 
     
-    Outputs these as an array, where array[i][j] gives the concentration of an isotope with cardinal mass difference i at position j. 
+    The basic structure of the array is: array[i][j] gives the concentration of an isotope with cardinal mass difference i at position j. 
+    
+    Inputs:
+        df: A dataFrame containing information about the molecule.
+        
+    Outputs:
+        concentrationArray: A numpy array giving the concentration of each isotope at each site. 
     '''
     elIDs = df['IDS'].values
     numberAtSite = df['Number'].values
@@ -295,7 +171,19 @@ def siteSpecificConcentrations(df):
 
 def calculateIsotopologueConcentrations(setOfAllIsotopologues, symmetryNumbers, concentrationArray):
     '''
-    Compute concentrations for each isotopologue and put them into a dictionary
+    Puts information about the isotopologues of a molecule, their symmetry numbers, and concentrations of individual isotopes together in order to calculate the concentration of each isotopologue. Does so under the stochastic assumption, i.e. assuming that isotopes are distributed stochastically across all isotopologues.
+    
+    This is a computationally expensive step--ways to improve would be welcome. Takes ~20 seconds for methionine. For molecules where it is too expensive, it would be expedient to avoid calculating all isotopologues and only calculate the M1, M2, etc populations of interest. 
+    
+    Inputs:
+        setOfAllIsotopologues: A list of tuples, where each tuple is an isotopologue of a molecule.
+        symmetryNumbers: A list of ints, where int i gives the number of ways to construct isotopologue i. Follows same indexing as setOfAllIsotopologues. 
+        concentrationArray: A numpy array giving the concentration of each isotope at each site. 
+        
+    Outputs:
+        d: A dictionary where the keys are string representations of each isotopologue and the values are dictionaries. For example, a string could be '00100', where there is an M1 substitution at position 3 and M0 isotopes at all other sites. The value dictionaries include "Conc", or concentration, and "num", giving the number of isotopologues of that form. The sum of all concentrations should be 1.  
+        
+        The keys can be "expanded" strings, i.e. including multiple atomic sites in parentheses. For example, N1/N2 and O3 would appear as (0,1)0. 
     '''
     d = {}
     for i, isotopologue in enumerate(setOfAllIsotopologues):
@@ -317,4 +205,161 @@ def calculateIsotopologueConcentrations(setOfAllIsotopologues, symmetryNumbers, 
         
     return d
 
+def condenseStr(text):
+    '''
+    Takes the "expanded" string depictions, i.e. "(0,1)0" for multiatomic sites and transforms them into "condensed" depictions, i.e. "010". This makes it easy to pick out the element for a particular substitution, for example, by finding the index of the condensed depiction and looking at that same index in strSiteElements. 
     
+    Inputs:
+        text: A string, the "expanded" string depiction. 
+        
+    Outputs:
+        text: A string, the "condensed" string depiction. 
+    '''
+    text = text.replace('(', '')
+    text = text.replace(')', '')
+    text = text.replace(',', '')
+    text = text.replace(' ', '')
+    
+    return text
+ 
+def uEl(el, n):
+    '''
+    Returns the type of substitution, given a chemical element and cardinal mass of isotope.
+    
+    Inputs:
+        el: A string, giving the element of interest
+        n: An int, giving the cardinal mass of the isotope
+        
+    Returns: 
+        A string identifying the isotope substitution. 
+    '''
+    if n == 0:
+        return ''
+    if n == 'x':
+        return ''
+    if el == 'C':
+        if n == 1:
+            return '13C'
+    if el == 'H':
+        if n == 1:
+            return 'D'
+    if el == 'O':
+        if n == 1:
+            return '17O'
+        if n == 2:
+            return '18O'
+    if el == 'N':
+        if n == 1:
+            return '15N'
+    if el == 'S':
+        if n == 1:
+            return '33S'
+        if n == 2:
+            return '34S'
+        if n == 4:
+            return '36S'
+        
+def calcCondensedDictionary(isotopologueConcentrationDict, df):
+    '''
+    Given the dictionary from calculateIsotopologueConcentrations, calculates another dictionary with more complete information. Takes the "expanded" string depictions i.e. "(0,1)0" to "condensed" depictions i.e. "010" and makes these the keys. Stores the expanded depictions, number, and concentration for each isotopologue, then additionally calculates their mass and relevant substitutions. 
+    
+    Computationally expensive; 20 seconds for methionine.
+    
+    An example entry from methionine for the unsubstituted isotopologue is shown below:  
+    
+    '000000000000000000000': {'Number': 1,
+      'full': '00(0, 0)00000(0, 0, 0)(0, 0)(0, 0, 0)(0, 0)00',
+      'Conc': 0.8906400439358315,
+      'Mass': 0,
+      'Subs': ''}
+      
+    Inputs: 
+        isotopologueConcentrationDict: The output from calculateIsotopologueConcentrations. 
+        df: A dataFrame containing information about the molecule.
+        
+    Outputs: 
+        byCondensed: A new dictionary containing more complete information about the isotopologues. 
+    '''
+    siteElements = strSiteElements(df)
+    
+    byCondensed = {}
+    for i, v in isotopologueConcentrationDict.items():
+        condensed = condenseStr(i)
+        byCondensed[condensed] = {}
+        byCondensed[condensed]['Number'] = v['num']
+        byCondensed[condensed]['full'] = i
+        byCondensed[condensed]['Conc'] = v['Conc']
+        byCondensed[condensed]['Mass'] = np.array(list(map(int,condensed))).sum()
+        byCondensed[condensed]['Subs'] = ''.join([uEl(element, int(number)) for element, number in zip(siteElements, condensed)])
+    
+    return byCondensed
+
+def calcSubDictionary(isotopologueConcentrationDict, df):
+    '''
+    Similar to the "byCondensed" dictionary, a more complete depiction of all isotopologues of a molecule. In this case, rather than index in by condensed string, index in by substitution--i.e., the key '17O' gives information for all isotopologues with the substituion '17O'. This is a better way to index into this information when we want to calculate results of mass spectrometry experiments. 
+    
+    Computationally expensive; 20 seconds for methionine. 
+    
+    An example entry from methionine is shown below.
+    
+    'D': {'Number': 12,
+      'Full': ['00(0, 0)00000(0, 0, 0)(0, 0)(0, 0, 0)(0, 0)01',
+       '00(0, 0)00000(0, 0, 0)(0, 0)(0, 0, 0)(0, 0)10',
+       '00(0, 0)00000(0, 0, 0)(0, 0)(0, 0, 0)(0, 1)00',
+       '00(0, 0)00000(0, 0, 0)(0, 0)(0, 0, 1)(0, 0)00',
+       '00(0, 0)00000(0, 0, 0)(0, 1)(0, 0, 0)(0, 0)00',
+       '00(0, 0)00000(0, 0, 1)(0, 0)(0, 0, 0)(0, 0)00'],
+      'Conc': 0.0015953500722996194,
+      'Mass': [1, 1, 1, 1, 1, 1],
+      'Condensed': ['000000000000000000001',
+       '000000000000000000010',
+       '000000000000000000100',
+       '000000000000000010000',
+       '000000000000010000000',
+       '000000000001000000000']},
+      
+    Inputs: 
+        isotopologueConcentrationDict: The output from calculateIsotopologueConcentrations. 
+        df: A dataFrame containing information about the molecule.
+        
+    Outputs: 
+        bySub: A new dictionary containing more complete information about the isotopologues. 
+    '''
+    siteElements = strSiteElements(df)
+    
+    bySub = {}
+    for i, v in isotopologueConcentrationDict.items():
+        condensed = condenseStr(i)
+        Subs = ''.join([uEl(element, int(number)) for element, number in zip(siteElements, condensed)])
+        if Subs not in bySub:
+            bySub[Subs] = {'Number': 0, 'Full': [],'Conc': 0, 'Mass': [], 'Condensed': []}
+        bySub[Subs]['Number'] += v['num']
+        bySub[Subs]['Full'].append(i)
+        bySub[Subs]['Conc'] += v['Conc']
+        bySub[Subs]['Mass'].append(np.array(list(map(int,condensed))).sum())
+        bySub[Subs]['Condensed'].append(condensed)
+        
+    return bySub
+
+def massSelections(condensedDictionary, massThreshold = 4):
+    '''
+    pulls out M0, M1, etc. populations from the condensed dictionary, up to specified threshold. 
+    
+    Inputs:
+        condensedDictionary: A dictionary with information about all isotopologues, keyed by condensed strings. The output of calcCondensedDictionary.
+        massThreshold: An int. Does not include populations with cardinal mass difference above this threshold. 
+        
+    Outputs:
+        A dictionary where the keys are "M0", "M1", etc. and the values are dictionaries containing all isotopologues from the condensed dictionary with a specified cardinal mass difference. 
+    '''
+    MNDict = {}
+    
+    for i in range(massThreshold+1):
+        MNDict['M' + str(i)] = {}
+        
+    for i, v in condensedDictionary.items():
+        for j in range(massThreshold+1):
+            if v['Mass'] == j:
+                MNDict['M' + str(j)][i] = v
+            
+    return MNDict
